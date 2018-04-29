@@ -21,7 +21,7 @@ BATCH_SIZE = 64         # 一批训练的数量
 TIME_STEP = 28          # 一共28行，所以共走28步(height)
 INPUT_SIZE = 28         # 一步吃进去28个东西
 LR = 0.01               # learning rate
-DOWNLOAD_MNIST = True   # set to True if haven't download the data
+DOWNLOAD_MNIST = False   # set to True if haven't download the data
 
 
 # Mnist digital dataset
@@ -42,25 +42,35 @@ train_data = dsets.MNIST(
 
 # Data Loader for easy mini-batch return in training
 # 批训练数据读取
-train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
+train_loader = \
+    torch.utils.data.DataLoader(
+        dataset=train_data,     # 数据是train_data
+        batch_size=BATCH_SIZE,  # 批大小
+        shuffle=True)           # 打乱
 
 # convert test data into Variable, pick 2000 samples to speed up testing
-test_data = dsets.MNIST(root='./mnist/', train=False, transform=transforms.ToTensor())
-test_x = Variable(test_data.test_data, volatile=True).type(torch.FloatTensor).cuda()[:2000]/255.   # shape (2000, 28, 28) value in range(0,1)
+test_data = dsets.MNIST(
+    root='./mnist/',
+    train=False,
+    transform=transforms.ToTensor())
+test_x = Variable(test_data.test_data, volatile=True).type(torch.FloatTensor)[:2000]/255.   # shape (2000, 28, 28) value in range(0,1)
 test_y = test_data.test_labels.numpy().squeeze()[:2000]    # covert to numpy array
 
 
 class RNN(nn.Module):
     def __init__(self):
-        super(RNN, self).__init__()
+        super(RNN, self).__init__() # 继承父类的构造函数
 
+        # RNN一般不太好收敛,用LSTM会比较好
         self.rnn = nn.LSTM(         # if use nn.RNN(), it hardly learns
-            input_size=INPUT_SIZE,
-            hidden_size=64,         # rnn hidden unit
-            num_layers=1,           # number of rnn layer
+            input_size=INPUT_SIZE,  # 一步吃进去多少个像素点
+            hidden_size=64,         # 神经元!hidden层的不同权重的单元个数rnn hidden unit
+            num_layers=1,           # number of rnn layer,一个layer里还有28个64单元的东西
+            # 看数据的三个维度如何排列的,一般情况下要是Batch在第一个维度,那么就是True
             batch_first=True,       # input & output will has batch size as 1s dimension. e.g. (batch, time_step, input_size)
         )
-
+        # 全连接层
+        # 输入64个,输出10个结果
         self.out = nn.Linear(64, 10)
 
     def forward(self, x):
@@ -68,24 +78,32 @@ class RNN(nn.Module):
         # r_out shape (batch, time_step, output_size)
         # h_n shape (n_layers, batch, hidden_size)
         # h_c shape (n_layers, batch, hidden_size)
+        # 下边那个会返回两个东西
+        # 一个是r_out,另一个是hidden state,表示当前层我的理解
+        # h_n,h_c 对应 分线程,主线程的state
+        # none那个下节会讲
         r_out, (h_n, h_c) = self.rnn(x, None)   # None represents zero initial hidden state
 
         # choose r_out at the last time step
+        # 选择最后一个时刻的output
+        # [batch, time step, input] 第二个参数设置为-1,说明取最后一个
         out = self.out(r_out[:, -1, :])
         return out
 
 
-rnn = RNN().cuda()
+rnn = RNN()
 print(rnn)
 
 optimizer = torch.optim.Adam(rnn.parameters(), lr=LR)   # optimize all cnn parameters
+# 一维的标签,不再是(0,0,0,1,0,0)哪种的了
 loss_func = nn.CrossEntropyLoss()                       # the target label is not one-hotted
 
 # training and testing
 for epoch in range(EPOCH):
+    # 强行多传一个序号参数
     for step, (x, y) in enumerate(train_loader):        # gives batch data
-        b_x = Variable(x.view(-1, 28, 28)).cuda()              # reshape x to (batch, time_step, input_size)
-        b_y = Variable(y).cuda()                               # batch y
+        b_x = Variable(x.view(-1, 28, 28))              # reshape x to (batch, time_step, input_size)
+        b_y = Variable(y)                             # batch y
 
         output = rnn(b_x)                               # rnn output
         loss = loss_func(output, b_y)                   # cross entropy loss
